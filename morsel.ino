@@ -38,32 +38,24 @@ const byte switchPin[2] = { 2, 3 }; /* Pins for dit, dah */
 
 #define  INVERT_SWITCH   1     /* Needed when using internal pull-up */
 
-#define  MAGIC           23    /* To detect if sketch has run before */
-
-#define  BLIP_MAX        10    /* Max number of unresolved semaphores */
+#define  MAGIC           24    /* To detect if sketch has run before */
 
 #define  MENUFIXED       3     /* Where to start counting tunable entries */
 
-const char *tunablesDesc[] = { "Number of switches",
-                               "Time between letters (ms)",
+const char *tunablesDesc[] = { "Time between letters (ms)",
                                "Time before inserting space (ms)"};
 
-int tunables[] = { 2, 1000, 2000 };
+int tunables[] = { 1000, 2000 };
 
-int *switchCount = &tunables[0];
-int *letterTime = &tunables[1];
-int *spaceTime = &tunables[2];
+int *letterTime = &tunables[0];
+int *spaceTime = &tunables[1];
 
 int semaphore = 1;             /* Current letter */
-int blipTime[BLIP_MAX];        /* The last number of semaphores' "on" time */
-byte blipWrite = 0;            /* Pointer to blipTime write position */
-byte blipRead = 0;             /* Pointer to blipTime last unresolved position */
 int programming = 1;
 bool serstatus = 0;
 
 byte lastState[2], lastSpace = 0;
 unsigned long lastChange = 0;
-unsigned int lastPause = 0;
 
 /* Function prototypes */
 void parseBtCmd(char* hidSequence);
