@@ -34,49 +34,77 @@
 
 #define  DEBOUNCE        20    /* Milliseconds to debounce switch */
 
-#define  SWITCH_PIN      3
+const byte switchPin[2] = { 2, 3 }; /* Pins for dit, dah */
 
 #define  INVERT_SWITCH   1     /* Needed when using internal pull-up */
 
-#define  BLIP_DELTA      250   /* ms length difference to qualify for reading */
-
-#define  BLIP_SLICE      1     /* 1/x amount over dash that should be considered
-                                * a pause. 1 = Slow day. 4 = Expert */
-
-#define  BLIP_SPACE      2     /* Multiplier, how many pauses are a space */
-
-#define  MAGIC           22    /* To detect if sketch has run before */
-
-#define  DELBOND_TIME    10000 /* Hold the switch for 10s to delete pairing
-                                * info */
-
-#define  SWITCH_MAX      2000  /* Don't exceed this value for longest press
-                                * when calculating dit vs dah */
+#define  MAGIC           23    /* To detect if sketch has run before */
 
 #define  BLIP_MAX        10    /* Max number of unresolved semaphores */
 
+#define  MENUFIXED       3     /* Where to start counting tunable entries */
+
+const char *tunablesDesc[] = { "Number of switches",
+                               "Time between letters (ms)",
+                               "Time before inserting space (ms)"};
+
+int tunables[] = { 2, 1000, 2000 };
+
+int *switchCount = &tunables[0];
+int *letterTime = &tunables[1];
+int *spaceTime = &tunables[2];
+
+int semaphore = 1;             /* Current letter */
 int blipTime[BLIP_MAX];        /* The last number of semaphores' "on" time */
 byte blipWrite = 0;            /* Pointer to blipTime write position */
 byte blipRead = 0;             /* Pointer to blipTime last unresolved position */
+int programming = 1;
+bool serstatus = 0;
 
-byte lastState = 0, lastSpace = 0;
+byte lastState[2], lastSpace = 0;
 unsigned long lastChange = 0;
 unsigned int lastPause = 0;
 
 /* Function prototypes */
 void parseBtCmd(char* hidSequence);
 char getKey(unsigned int pause);
+void printMenu();
+void purge();
+int prompt();
+
+void saveValues() { /* Write all tunables to EEPROM */
+  int adx = 2;
+  int sp;
+  for (sp = 0; sp < (sizeof(tunables)/sizeof(int)); sp++) {
+    EEPROM.update(adx, tunables[sp] >> 8);
+    EEPROM.update(adx+1, tunables[sp]); adx += 2;
+  }
+}
 
 /* ===== Main setup, loop, supporting functions ===== */
 Adafruit_BluefruitLE_SPI ble(BLUEFRUIT_SPI_CS, BLUEFRUIT_SPI_IRQ, BLUEFRUIT_SPI_RST);
 
 void setup() {
+  Serial.begin(115200);
+  Serial.setTimeout(60000);
   ble.begin(0);
-  if (EEPROM.read(0) != MAGIC) { /* First run */
+  int adx = 0;
+  int val = (EEPROM.read(adx) << 8) + EEPROM.read(adx+1);
+  if (val != MAGIC) {
+    Serial.println("First run on this chip. Values will be initialized.");
+    EEPROM.update(adx, MAGIC >> 8); EEPROM.update(adx+1, MAGIC);
+    saveValues();
     ble.factoryReset();
     ble.sendCommandCheckOK("AT+GAPDEVNAME=morsel");
     ble.sendCommandCheckOK("AT+HWMODELED=DISABLE");
-    EEPROM.update(0, MAGIC);
+  } else {
+    int sp;
+    adx += 2;
+    for (sp = 0; sp < (sizeof(tunables)/sizeof(int)); sp++) {
+      tunables[sp] = (EEPROM.read(adx) << 8) + EEPROM.read(adx+1);
+      adx += 2;
+    }
+    Serial.println("Stored values have been loaded.");
   }
   ble.echo(false);
   ble.sendCommandCheckOK("AT+BleHIDEn=On");
@@ -84,92 +112,139 @@ void setup() {
   ble.sendCommandCheckOK("AT+GAPCONNECTABLE=1");
   ble.sendCommandCheckOK("AT+GAPSTARTADV");
   ble.reset();
-  digitalWrite(SWITCH_PIN, INVERT_SWITCH); /* Activate internal pull-up
-                                            * resistor if inverting */
+  for (int s = 0; s < 2; s++)
+    digitalWrite(switchPin[s], INVERT_SWITCH); /* Activate internal pull-up
+                                                 * resistor if inverting */
 }
 
 void loop() {
-  byte r;
-  if ((r = digitalRead(SWITCH_PIN) ^ INVERT_SWITCH) != lastState) {
-    delay(DEBOUNCE);
-    lastState ^= 1;
-    if (r) { /* Switch pressed */
-      lastPause = (unsigned int) (millis() - lastChange);
-    } else { /* Switch released */
-      blipTime[blipWrite] = (unsigned int) (millis() - lastChange);
-      blipWrite = (blipWrite + 1) % BLIP_MAX;
-      if (blipTime[blipWrite] > DELBOND_TIME) {
-        /* Delete bonding info */
-        ble.sendCommandCheckOK("AT+GAPDELBONDS");
+  if (Serial && !serstatus) {
+    serstatus = 1;
+    programming = 99;
+  } else if (!Serial && serstatus) {
+    serstatus = 0;
+    programming = -99;
+  }
+  byte r, s;
+  for (s = 0; s < 2; s++) {
+    if ((r = digitalRead(switchPin[s]) ^ INVERT_SWITCH) != lastState[s]) {
+      delay(DEBOUNCE);
+      lastChange = millis();
+      lastState[s] ^= 1;
+      if (r) { /* Switch pressed */
+        semaphore <<= 1;
+        semaphore |= s; /* Dits are 1, dahs are 0 */
       }
     }
-    lastChange = millis();
   }
-  char key = getKey((unsigned int) (millis() - lastChange));
-  if (key) {
-    ble.print("AT+BleKeyboard=");
-    if (key == '\r') ble.println("\\r");
-    else ble.println(key);
-    ble.waitForOK();
+
+  if (!lastState[0] && !lastState[1]) {
+    char key = getKey((unsigned int) (millis() - lastChange));
+    if (key) {
+      ble.print("AT+BleKeyboard=");
+      if (key == '\r') ble.println("\\r");
+      else ble.println(key);
+      ble.waitForOK();
+      Serial.print(key);
+      semaphore = 1;
+    }
+  }
+
+  if (programming >= 0) { /* Menu mode */
+    switch (programming) {
+      case 99:
+        purge();
+        printMenu();
+        programming = -99;
+        break;
+        
+      case 1:
+        saveValues();
+        Serial.print("\033[2J\033[0;0H");
+        programming = -1;
+        break;
+        
+      case 2:
+        /* Delete bonding info */
+        ble.sendCommandCheckOK("AT+GAPDELBONDS");
+        Serial.println("Bond deleted.");
+        delay(1000);
+        programming = 99;
+        break;
+        
+      default:
+        purge();
+        Serial.print("\r\n Enter new value for '");
+        Serial.print(tunablesDesc[programming-MENUFIXED]);
+        Serial.print("': ");
+        tunables[programming-MENUFIXED] = prompt();
+        programming = 99;
+        break;      
+    }
+  }
+  if (programming == -99 && Serial.available() > 0) {
+    int val = Serial.read() - 48;
+    if ((val < 1) || (val > (MENUFIXED+sizeof(tunables)/sizeof(int)))) {
+      Serial.println("\r\n Invalid choice.");
+      delay(1000);
+      printMenu();
+    } else programming = val;
+  }
+  if (programming == -1 && Serial.available() > 0) {
+    programming = 99;
   }
 }
 
 char getKey(unsigned int pause) { /* Search for patterns */
-  int minLen = 0x7FFF;
-  int maxLen = 0;
-  int reference = 0;
-  byte blipPtr = 0;
-  int semaphore = 1;
-
-  /* Detect dit vs dah */
-  blipPtr = blipRead;
-  while (1) {
-    if (blipTime[blipPtr] < minLen) minLen = blipTime[blipPtr];
-    if (blipTime[blipPtr] > maxLen) maxLen = blipTime[blipPtr];
-    
-    blipPtr = (blipPtr + 1) % BLIP_MAX;
-    if (blipPtr == blipRead) break;
-  }
-
-  if (maxLen > SWITCH_MAX) maxLen = SWITCH_MAX;
-
-  /* Minimum difference between a short and long press needed to match */
-  if (maxLen - minLen > BLIP_DELTA) 
-    reference = minLen + (maxLen - minLen) / 2;
-    
-  if (!reference) return 0; /* Exit if we can't make heads or tails */
-
+  
   /* Exit if there hasn't been a significant pause */
-  if (pause < (maxLen + (maxLen - minLen) / BLIP_SLICE)) return 0;
+  if (pause < *letterTime) return 0;
 
-  if (!lastSpace && pause > (maxLen + (maxLen - minLen) / BLIP_SLICE) * BLIP_SPACE) {
+  if (!lastSpace && pause > *spaceTime) {
     lastSpace = 1;
     return ' ';
   }
   
-  if (blipRead == blipWrite) return 0; /* Exit if there are no new presses */
-
   /* Find semaphores */
-  blipPtr = blipRead;
-  while (blipPtr != blipWrite) {
-    semaphore <<= 1;
-    semaphore |= (blipTime[blipPtr] < reference); /* Dots are 1, dashes are 0 */
-
-    if (refTable[semaphore] && ((blipPtr+1)%BLIP_MAX) == blipWrite) {
-      blipRead = blipWrite;
-      lastSpace = (refTable[semaphore] == '\r');
-      return refTable[semaphore];
-    }
-
-    if (semaphore > SEMAPHORE_MAX) {
-      blipRead = (blipRead + 1) % BLIP_MAX;
-      blipPtr = blipRead;
-    }
-
-    blipPtr = (blipPtr + 1) % BLIP_MAX;
-
+  if (semaphore > SEMAPHORE_MAX) { /* Invalid */
+    semaphore = 1;
+    return 0;
   }
 
-  blipRead = blipWrite;
+  if (refTable[semaphore]) { /* Found match */
+    lastSpace = (refTable[semaphore] == '\r');
+    return refTable[semaphore];
+  }
 
+  return 0;
+}
+
+void printMenu() {
+  Serial.println("\033[2J\033[0;0H");
+  Serial.println(" \033[32;1mmorsel\033[34m\r\n BLE Morse code converter\033[0m\r\n");
+  Serial.println(" \033[1m1.\033[0m Save values and show output\r\n");
+  Serial.println(" \033[1m2.\033[0m Delete Bluetooth bond\r\n");
+  Serial.println(" \033[1mTunable items:\033[0m"); 
+  int ch = MENUFIXED;
+  int sp;
+  for (sp = 0; sp < (sizeof(tunables)/sizeof(int)); sp++) {
+    Serial.print(" \033[1m");
+    Serial.write((ch++) + 48);
+    Serial.print(".\033[0m ");
+    Serial.print(tunablesDesc[sp]);
+    Serial.print(" = ");
+    Serial.println(tunables[sp]);
+  }
+  Serial.print("\n Enter a choice: \r\n\r\n");
+}
+
+void purge() {
+  while (Serial.available() > 0)
+    int val = Serial.read();
+}
+
+int prompt() {
+  purge();
+  Serial.print("\r\n Enter a new value: ");
+  return Serial.parseInt();
 }
