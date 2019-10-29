@@ -3,9 +3,13 @@ morsel
 
 ## Overview
 
-This arduino sketch reads button presses from a single button and types the
-received letters via BLE HID commands. It is intended to be used on an
-Arduino with attached nRF51 such as an Adafruit Feather Bluefruit LE.
+This arduino sketch reads Morse code, given as button presses from a single
+button and types the received letters via BLE HID commands. It is intended to
+be used on an Arduino with attached nRF51 such as an Adafruit Feather 
+Bluefruit LE.
+
+A second version thast uses two switches (one for dit, one for dah) may be
+found in the "alternate" branch.
 
 ## Compile / Upload the sketch
 
@@ -45,4 +49,4 @@ result in a longer pause before inserting a space.
 
 ## CAD models
 
-[Onshape artifacts](https://cad.onshape.com/documents/a5cf00b2b2b8b7f75a416cac/w/fb23e6355082f36a0f72b345/e/1260f466cc52925c32e8d48e)
+[Onshape artifacts](https://cad.onshape.com/documents/a5cf00b2b2b8b7f75a416cac/w/fb23e6355082f36a0f72b345/e/167e129dd69e2a4ada7f6a7c)
