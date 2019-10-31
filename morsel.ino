@@ -45,7 +45,7 @@ const byte switchPin[2] = { 2, 3 }; /* Pins for dit, dah */
 const char *tunablesDesc[] = { "Time between letters (ms)",
                                "Time before inserting space (ms)"};
 
-int tunables[] = { 1000, 2000 };
+int tunables[] = { 1000, 0 };
 
 int *letterTime = &tunables[0];
 int *spaceTime = &tunables[1];
@@ -192,7 +192,7 @@ char getKey(unsigned int pause) { /* Search for patterns */
   /* Exit if there hasn't been a significant pause */
   if (pause < *letterTime) return 0;
 
-  if (!lastSpace && pause > *spaceTime) {
+  if (!lastSpace && *spaceTime && pause > *spaceTime) {
     lastSpace = 1;
     return ' ';
   }
