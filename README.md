@@ -14,7 +14,7 @@ found in the "alternate" branch.
 ## Compile / Upload the sketch
 
 Before building this code, install the "Adafruit AVR Boards" in Boards Manager,
-and the "Adadafruit BluefruitLE nRF51" library in Library Manager.
+and the "Adafruit BluefruitLE nRF51" library in Library Manager.
 
 Set constant SWITCH_PIN as desired. The switch should be connected between
 SWITCH_PIN and ground. Once this is set, upload the sketch.
